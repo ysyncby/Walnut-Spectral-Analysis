@@ -3,6 +3,7 @@ import xlrd
 import os
 import numpy as np
 import statistics as st
+# import matplotlib.pyplot as plt
 import matplotlib.pyplot as plt
 
 
@@ -64,7 +65,7 @@ class Data_Preparation:
         plt.ylabel('Spectral Intensity')
         plt.show()
 
-    def get_raw(self, bound1 = 400, bound2 = 1000, bound3 = 1600):
+    def get_raw(self, bound1 = 300, bound2 = 935):
         spec_label = self.read_spec_label()
         ind_flame_s = {}
         ind_flame_nir = {}
@@ -73,9 +74,8 @@ class Data_Preparation:
                     if label not in ind_flame_s:
                         ind_flame_s[label] = index
         for index, label in enumerate(spec_label['flame-NIR']):
-            if bound2 <= label <= bound3:
-                    if label not in ind_flame_nir:
-                        ind_flame_nir[label] = index
+                if label not in ind_flame_nir:
+                    ind_flame_nir[label] = index
 
         sample_s, sample_nir, samples_num = self.read_xdata()
 
@@ -96,7 +96,7 @@ class Data_Preparation:
 
         return samples_spec, wavelength_s+wavelength_nir
 
-    def get_down_scaling(self, delta = 5, bound1 = 400, bound2 = 1000, bound3 = 1600):
+    def get_down_scaling(self, delta = 5, bound1 = 300, bound2 = 935):
         spec_label = self.read_spec_label()
         ind_flame_s = {}
         spec_flame_s = {}
@@ -105,7 +105,7 @@ class Data_Preparation:
 
         assert delta != 0
 
-        for mid in range(400, 1600+delta, delta):
+        for mid in range(bound1, 1660+delta, delta):
             for index, label in enumerate(spec_label['flame-S']):
                 if bound1 <= label <= bound2:
                     if mid-(delta/2) < label <= mid+(delta/2):
@@ -116,14 +116,13 @@ class Data_Preparation:
                             ind_flame_s[mid].append(index)
                             spec_flame_s[mid].append(label)
             for index, label in enumerate(spec_label['flame-NIR']):
-                if bound2 <= label <= bound3:
-                    if mid-(delta/2) < label <= mid+(delta/2):
-                        if mid not in ind_flame_nir:
-                            ind_flame_nir[mid] = [index]
-                            spec_flame_nir[mid] = [label]
-                        else:
-                            ind_flame_nir[mid].append(index)
-                            spec_flame_nir[mid].append(label)
+                if mid-(delta/2) < label <= mid+(delta/2):
+                    if mid not in ind_flame_nir:
+                        ind_flame_nir[mid] = [index]
+                        spec_flame_nir[mid] = [label]
+                    else:
+                        ind_flame_nir[mid].append(index)
+                        spec_flame_nir[mid].append(label)
 
         sample_s, sample_nir, samples_num = self.read_xdata()
 
@@ -150,11 +149,20 @@ class Data_Preparation:
 
         return samples_spec, wavelength_s+wavelength_nir
 
-    def SNV_sample(self, samples_spec):
+    # def SNV_sample(self, samples_spec):
+    #     samples_spec_snv = []
+    #     for sample in samples_spec:
+    #         aver = st.mean(sample)
+    #         std = st.stdev(sample)
+    #         datas = []
+    #         for data in sample:
+    #             datas.append((data-aver)/std)
+    #         samples_spec_snv.append(datas)
+    #     return samples_spec_snv
+
+    def SNV_sample_group(self, samples_spec, aver, std):
         samples_spec_snv = []
         for sample in samples_spec:
-            aver = st.mean(sample)
-            std = st.stdev(sample)
             datas = []
             for data in sample:
                 datas.append((data-aver)/std)
@@ -189,25 +197,35 @@ class Data_Preparation:
     def classify_sample(self, bound1 = 5, bound2 = 15, bound3 = 100):
 
         samples_spec, wavelength = self.get_down_scaling()
-        snv_spec = self.SNV_sample(samples_spec)
 
         exlFile = xlrd.open_workbook(self.ydata_loc)
         res_sheet = exlFile.sheet_by_name('Label')
         res = res_sheet.col_values(1)[1:]
 
-        assert len(res) == len(snv_spec)
-        classes = {'low':[], 'mid':[], 'high':[], 'very_high':[]}
+        assert len(res) == len(samples_spec)
+        classes = {'control':[], 'low':[], 'mid':[], 'high':[], 'very_high':[]}
 
         for ind, nema in enumerate(res):
-            if nema <= bound1:
-                classes['low'].append(snv_spec[ind])
+            if nema == 0:
+                classes['control'].append(samples_spec[ind])
+            elif nema <= bound1:
+                classes['low'].append(samples_spec[ind])
             elif nema <= bound2:
-                classes['mid'].append(snv_spec[ind])
+                classes['mid'].append(samples_spec[ind])
             elif nema <= bound3:
-                classes['high'].append(snv_spec[ind])
+                classes['high'].append(samples_spec[ind])
             else:
-                classes['very_high'].append(snv_spec[ind])
+                classes['very_high'].append(samples_spec[ind])
 
+        sam_all = []
+        for sam in samples_spec:
+            sam_all += sam
+        aver = st.mean(sam_all)
+        std = st.stdev(sam_all)
+
+        for clas in classes.keys():
+            snv_spec = self.SNV_sample_group(classes[clas], aver, std)
+            classes[clas] = snv_spec
         return classes, wavelength
 
     def draw_raw_classes(self, classes, wavelength, project_name):
@@ -217,13 +235,13 @@ class Data_Preparation:
         # very_high: red
 
          # = self.classify_sample()
-        pattern = {'low': 'green', 'mid': 'black', 'high': 'blue', 'very_high': 'red'}
+        pattern = {'control': 'yellow', 'low': 'green', 'mid': 'black', 'high': 'blue', 'very_high': 'red'}
 
         plt.title(project_name)
         for key in pattern.keys():
             for i, sam in enumerate(classes[key]):
                 if i == 0:
-                    plt.plot(wavelength, sam, color=pattern[key], label=key)
+                    plt.plot(wavelength, sam, color=pattern[key], label=key + ':' + str(len(classes[key])))
                 else:
                     plt.plot(wavelength, sam, color=pattern[key])
 
@@ -273,35 +291,57 @@ class Data_Preparation:
 
 
 
-spec_loc = '/home/ysyncby/PycharmProjects/RA_Spectral_Data_Analysis/data/kobin_spectra_wavelengths.xlsx'
-project_30 = '/home/ysyncby/PycharmProjects/RA_Spectral_Data_Analysis/data/Walnut_Project_30'
-project_IV = '/home/ysyncby/PycharmProjects/RA_Spectral_Data_Analysis/data/Walnut_Project_IV'
-project_VI = '/home/ysyncby/PycharmProjects/RA_Spectral_Data_Analysis/data/Walnut_Project_VI'
+project_30 = '/home/ysyncby/courses/RA/Data/data/Walnut_Project_30'
+project_IV = '/home/ysyncby/courses/RA/Data/data/Walnut_Project_IV'
+project_VI = '/home/ysyncby/courses/RA/Data/data/Walnut_Project_VI'
+spec_loc = '/home/ysyncby/courses/RA/Data/data/kobin_spectra_wavelengths.xlsx'
 
 
-
+# # step 1: get raw
 # dp = Data_Preparation(spec_loc, project_VI)
-# res = dp.read_spec_label()
+# samples_spec, wavelength = dp.get_raw()
+# dp.draw(wavelength, samples_spec, 'Walnut_Project_VI')
+
+# step 2: get down scaling
+# dp = Data_Preparation(spec_loc, project_VI)
+# samples_spec, wavelength = dp.get_down_scaling()
+# dp.draw(wavelength, samples_spec, 'Walnut_Project_VI')
+
+# step 3: SNV
+# dp = Data_Preparation(spec_loc, project_VI)
 # samples_spec, wavelength = dp.get_down_scaling()
 # snv_spec = dp.SNV_sample(samples_spec)
 # dp.draw(wavelength, snv_spec, 'Walnut_Project_VI')
+
+# step 4: grouped SNV
+dp = Data_Preparation(spec_loc, project_VI)
+samples_spec, wavelength = dp.classify_sample()
+dp.draw_raw_classes(samples_spec, wavelength, 'Walnut_Project_VI')
+
+
+
+
+
+
+# step 10: count groups
 # print(dp.classify_groups())
 
-dp1 = Data_Preparation(spec_loc, project_30)
-classes1, _ = dp1.classify_sample()
-dp2 = Data_Preparation(spec_loc, project_VI)
-classes2, _ = dp2.classify_sample()
-dp3 = Data_Preparation(spec_loc, project_IV)
-classes3, wavelength = dp3.classify_sample()
+# dp1 = Data_Preparation(spec_loc, project_30)
+# classes1, _ = dp1.classify_sample()
+# dp2 = Data_Preparation(spec_loc, project_VI)
+# classes2, _ = dp2.classify_sample()
+# dp3 = Data_Preparation(spec_loc, project_IV)
+# classes3, wavelength = dp3.classify_sample()
+#
+# classes_all = {'low':[], 'mid':[], 'high':[], 'very_high':[]}
+# classes_all['low'] = classes1['low'] + classes2['low'] + classes3['low']
+# classes_all['mid'] = classes1['mid'] + classes2['mid'] + classes3['mid']
+# classes_all['high'] = classes1['high'] + classes2['high'] + classes3['high']
+# classes_all['very_high'] = classes1['very_high'] + classes2['very_high'] + classes3['very_high']
+#
+# dp1.draw_raw_classes(classes_all, wavelength, 'Walnut_Project_all')
+# dp1.draw_aver_classes(classes_all, wavelength, 'Walnut_Project_all')
 
-classes_all = {'low':[], 'mid':[], 'high':[], 'very_high':[]}
-classes_all['low'] = classes1['low'] + classes2['low'] + classes3['low']
-classes_all['mid'] = classes1['mid'] + classes2['mid'] + classes3['mid']
-classes_all['high'] = classes1['high'] + classes2['high'] + classes3['high']
-classes_all['very_high'] = classes1['very_high'] + classes2['very_high'] + classes3['very_high']
-
-dp1.draw_raw_classes(classes_all, wavelength, 'Walnut_Project_all')
-dp1.draw_aver_classes(classes_all, wavelength, 'Walnut_Project_all')
 # class_res1 = dp1.classify_groups()
 # print('low:',len(class_res1['low']), class_res1['low'])
 # print('mid:',len(class_res1['mid']))
